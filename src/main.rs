@@ -7,28 +7,23 @@ use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::*;
 
-fn make_future() -> impl Future<Output = Result<i32, io::Error>> {
-    async { panic!("boom") }
-}
+// fn make_future() -> impl Future<Output = Result<i32, io::Error>> {
+//     async { panic!("boom") }
+// }
 
 #[derive(Clone, Debug)]
 struct Dummy;
 
-// fn make_future_takes_dummy(dummy: Dummy) -> Pin<Box<dyn Future<Output = Result<u32, io::Error>>>> {
-//     Box::pin(async move {
-//         info!(?dummy, "use dummy for something");
-//         panic!("boom")
-//     })
-// }
-
 fn takes_dummy_makes_make_future(
     dummy: Dummy,
 ) -> impl Fn() -> Pin<Box<dyn Future<Output = Result<u64, io::Error>> + Send>> + 'static + Send {
-    Box::new(|| todo!())
-    // async move {
-    //     info!(?dummy, "use dummy for something");
-    //     panic!("boom")
-    // }
+    move || {
+        let dummy = dummy.clone();
+        Box::pin(async move {
+            info!(?dummy, "use dummy for something");
+            panic!("boom")
+        })
+    }
 }
 
 async fn sleep_1_second() {

@@ -9,27 +9,27 @@ impl `ErrorHandler` to customize error handling.
 Call `make_future_respawnable` to put your factory to work, with the error handler.
 
 ```rust
-    struct TaskReturnsResult;
+struct TaskReturnsResult;
 
-    impl FutureFactory<Result<(), io::Error>> for TaskReturnsResult {
-        fn build_future(&mut self) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
-            Box::pin(async { panic!("boom") })
-        }
+impl FutureFactory<Result<(), io::Error>> for TaskReturnsResult {
+    fn build_future(&mut self) -> Pin<Box<dyn Future<Output = Result<(), io::Error>> + Send>> {
+        Box::pin(async { panic!("boom") })
     }
+}
 
-    let factory = TaskReturnsResult;
+let factory = TaskReturnsResult;
 
-    let handler = AlwaysRespawnAndTrace {
-        duration: std::time::Duration::from_millis(1),
-    };
+let handler = AlwaysRespawnAndTrace {
+    duration: std::time::Duration::from_millis(1),
+};
 
-    let join_handle = tokio::spawn(make_future_respawnable(handler, factory));
+let join_handle = tokio::spawn(make_future_respawnable(handler, factory));
 
-    sleep(Duration::from_millis(10)).await;
+sleep(Duration::from_millis(10)).await;
 
-    join_handle.abort();
+join_handle.abort();
 
-    let err = join_handle.await.unwrap_err();
-    assert!(!err.is_panic(), "{:?}", err);
-    assert!(err.is_cancelled(), "{:?}", err);
+let err = join_handle.await.unwrap_err();
+assert!(!err.is_panic(), "{:?}", err);
+assert!(err.is_cancelled(), "{:?}", err);
 ```

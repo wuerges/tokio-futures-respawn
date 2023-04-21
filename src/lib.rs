@@ -6,7 +6,7 @@ use tokio::task::JoinError;
 use tokio::time::sleep;
 
 #[cfg(feature = "tracing")]
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub type RetryResult<T> = Result<T, JoinError>;
 
@@ -56,12 +56,30 @@ impl<T> ErrorHandler<T, ()> for AlwaysRespawn {
 }
 
 #[cfg(feature = "tracing")]
+pub struct AlwaysRespawnAndTraceResults {
+    duration: std::time::Duration,
+}
+
+#[cfg(feature = "tracing")]
 pub struct AlwaysRespawnAndTrace {
     duration: std::time::Duration,
 }
 
 #[cfg(feature = "tracing")]
-impl<T: Debug, E: std::error::Error> ErrorHandler<Result<T, E>, ()> for AlwaysRespawnAndTrace {
+impl<T> ErrorHandler<T, ()> for AlwaysRespawnAndTrace {
+    fn handle(&mut self, result: Result<T, tokio::task::JoinError>) -> RetryPolicy<()> {
+        match result {
+            Ok(_ok) => warn!("task finished"),
+            Err(err) => error!(?err, "task failed"),
+        }
+        RetryPolicy::WaitRepeat(self.duration)
+    }
+}
+
+#[cfg(feature = "tracing")]
+impl<T: Debug, E: std::error::Error> ErrorHandler<Result<T, E>, ()>
+    for AlwaysRespawnAndTraceResults
+{
     fn handle(&mut self, result: Result<Result<T, E>, JoinError>) -> RetryPolicy<()> {
         match result {
             Ok(finished) => match finished {
@@ -179,8 +197,36 @@ mod tests {
 
     #[cfg(feature = "tracing")]
     #[tokio::test]
-    async fn check_always_respawn_and_trace_compiles() {
+    async fn check_always_respawn_and_trace_result_compiles() {
         let factory = TaskReturnsResult;
+
+        let handler = AlwaysRespawnAndTraceResults {
+            duration: std::time::Duration::from_millis(1),
+        };
+
+        let join_handle = tokio::spawn(make_future_respawnable::<_, _, _>(handler, factory));
+
+        sleep(Duration::from_millis(10)).await;
+
+        join_handle.abort();
+
+        let err = join_handle.await.unwrap_err();
+        assert!(!err.is_panic(), "{:?}", err);
+        assert!(err.is_cancelled(), "{:?}", err);
+    }
+
+    struct TaskReturnsVoid;
+
+    impl FutureFactory<()> for TaskReturnsVoid {
+        fn build_future(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            Box::pin(async { panic!("boom") })
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    #[tokio::test]
+    async fn check_always_respawn_and_trace_compiles() {
+        let factory = TaskReturnsVoid;
 
         let handler = AlwaysRespawnAndTrace {
             duration: std::time::Duration::from_millis(1),

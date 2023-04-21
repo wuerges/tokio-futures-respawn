@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::time::Duration;
 use tokio::task::JoinError;
 use tokio::time::sleep;
+use tracing::{error, info};
 
 pub type RetryResult<T> = Result<T, JoinError>;
 
@@ -51,6 +52,35 @@ pub struct AlwaysRespawn {
 
 impl<T> ErrorHandler<T> for AlwaysRespawn {
     fn handle(&mut self, _result: Result<T, JoinError>) -> RetryPolicy<T> {
+        RetryPolicy::WaitRepeat(self.duration)
+    }
+}
+
+#[cfg(feature = "tracing")]
+pub struct AlwaysRespawnAndTrace {
+    duration: std::time::Duration,
+}
+
+#[cfg(feature = "tracing")]
+impl<T: Debug, E: std::error::Error> ErrorHandler<Result<T, E>> for AlwaysRespawnAndTrace {
+    fn handle(&mut self, result: Result<Result<T, E>, JoinError>) -> RetryPolicy<Result<T, E>> {
+        match result {
+            Ok(finished) => match finished {
+                Ok(ok) => {
+                    info!(?ok, "task completed");
+                }
+                Err(err) => {
+                    error!(?err, "task completed with error");
+                }
+            },
+            Err(join) => {
+                if join.is_panic() {
+                    error!(?join, "task aborted with panic");
+                } else {
+                    error!(?join, "task aborted with error");
+                }
+            }
+        }
         RetryPolicy::WaitRepeat(self.duration)
     }
 }

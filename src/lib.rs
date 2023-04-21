@@ -17,19 +17,20 @@ pub trait ErrorHandler<T> {
     fn handle(&mut self, result: Result<T, JoinError>) -> RetryPolicy<T>;
 }
 
-pub trait FutureFactory {
-    fn build_future<T>(&self) -> Pin<Box<dyn Future<Output = T> + Send>>
-    where
-        T: 'static;
+pub trait FutureFactory<T>
+where
+    T: 'static,
+{
+    fn build_future(&mut self) -> Pin<Box<dyn Future<Output = T> + Send>>;
 }
 
 pub async fn make_future_respawnable<T, F>(
     mut handler: impl ErrorHandler<T>,
-    f: F,
+    mut f: F,
 ) -> RetryResult<T>
 where
     T: Send + 'static + Debug,
-    F: FutureFactory,
+    F: FutureFactory<T>,
 {
     loop {
         let fut = f.build_future();
@@ -72,27 +73,45 @@ impl<T> ErrorHandler<T> for RetriesTimes {
 
 #[cfg(test)]
 mod tests {
+    use tracing::info;
+    use tracing_subscriber::FmtSubscriber;
+
     use super::*;
-    use std::io;
     use std::panic;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     #[derive(Clone, Debug)]
     struct Dummy;
 
     struct TakesDummy {
         dummy: Dummy,
+        count: Arc<AtomicU32>,
     }
 
-    impl FutureFactory for TakesDummy {
-        fn build_future<T>(&self) -> Pin<Box<dyn Future<Output = T> + Send>> {
+    impl FutureFactory<()> for TakesDummy {
+        fn build_future(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            info!("uses dummy for something {:?}", self.dummy);
+            let x = self.count.fetch_add(1, Ordering::Relaxed);
+            info!("count: {}", x);
             Box::pin(async move { panic!("boom") })
         }
     }
 
     #[tokio::test]
-    async fn test_logging() {
+    async fn tests_retries_3_times() {
+        let subscriber = FmtSubscriber::builder()
+            .with_max_level(tracing::Level::TRACE)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+
         let dummy = Dummy;
-        let takes_dummy = TakesDummy { dummy };
+        let count = Arc::new(AtomicU32::new(0));
+        let takes_dummy = TakesDummy {
+            dummy,
+            count: count.clone(),
+        };
 
         let handler = RetriesTimes {
             duration: std::time::Duration::from_millis(10),
@@ -101,6 +120,8 @@ mod tests {
 
         let join_handle = tokio::spawn(make_future_respawnable::<(), _>(handler, takes_dummy));
 
-        join_handle.await.unwrap().unwrap()
+        let err = join_handle.await.unwrap().unwrap_err();
+        assert!(err.is_panic());
+        assert_eq!(count.load(Ordering::SeqCst), 4);
     }
 }

@@ -17,8 +17,8 @@ pub trait ErrorHandler<T> {
     fn handle(&mut self, result: Result<T, JoinError>) -> RetryPolicy<T>;
 }
 
-pub trait FutureFactory: Clone {
-    fn build_future<T>(self) -> Pin<Box<dyn Future<Output = T> + Send>>
+pub trait FutureFactory {
+    fn build_future<T>(&self) -> Pin<Box<dyn Future<Output = T> + Send>>
     where
         T: 'static;
 }
@@ -32,7 +32,7 @@ where
     F: FutureFactory,
 {
     loop {
-        let fut = f.clone().build_future();
+        let fut = f.build_future();
         let join_handle = tokio::spawn(fut);
         let result = join_handle.await;
         let policy = handler.handle(result);
@@ -79,13 +79,12 @@ mod tests {
     #[derive(Clone, Debug)]
     struct Dummy;
 
-    #[derive(Clone, Debug)]
     struct TakesDummy {
         dummy: Dummy,
     }
 
     impl FutureFactory for TakesDummy {
-        fn build_future<T>(self) -> Pin<Box<dyn Future<Output = T> + Send>> {
+        fn build_future<T>(&self) -> Pin<Box<dyn Future<Output = T> + Send>> {
             Box::pin(async move { panic!("boom") })
         }
     }

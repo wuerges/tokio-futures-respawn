@@ -46,7 +46,7 @@ where
 }
 
 pub struct AlwaysRespawn {
-    duration: std::time::Duration,
+    pub duration: std::time::Duration,
 }
 
 impl<T> ErrorHandler<T, ()> for AlwaysRespawn {
@@ -57,12 +57,12 @@ impl<T> ErrorHandler<T, ()> for AlwaysRespawn {
 
 #[cfg(feature = "tracing")]
 pub struct AlwaysRespawnAndTraceResults {
-    duration: std::time::Duration,
+    pub duration: std::time::Duration,
 }
 
 #[cfg(feature = "tracing")]
 pub struct AlwaysRespawnAndTrace {
-    duration: std::time::Duration,
+    pub duration: std::time::Duration,
 }
 
 #[cfg(feature = "tracing")]
@@ -103,8 +103,8 @@ impl<T: Debug, E: std::error::Error> ErrorHandler<Result<T, E>, ()>
 }
 
 pub struct RetriesTimes {
-    duration: std::time::Duration,
-    count: usize,
+    pub duration: std::time::Duration,
+    pub count: usize,
 }
 
 impl<T> ErrorHandler<T, Result<T, JoinError>> for RetriesTimes {

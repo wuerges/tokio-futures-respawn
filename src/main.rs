@@ -2,19 +2,33 @@ use std::future::Future;
 use std::io;
 use std::panic;
 use tokio::task;
-use tokio::task::JoinHandle;
+use tokio::time::sleep;
+use tracing::*;
+use tracing_subscriber::*;
 
 fn make_future() -> impl Future<Output = Result<i32, io::Error>> {
     async { panic!("boom") }
 }
 
-fn spawn_future_retry_panics<T, F, Fut>(f: F) -> JoinHandle<T>
+async fn spawn_future_retry_panics<T, F, Fut>(f: F)
 where
     T: Send + 'static,
-    F: FnOnce() -> Fut,
+    F: Fn() -> Fut,
     Fut: Future<Output = T> + Send + 'static,
 {
-    tokio::spawn(f())
+    loop {
+        let handle = tokio::spawn(f());
+        match handle.await {
+            Ok(r) => {
+                sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                if e.is_panic() {
+                    sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
 }
 
 #[tokio::main]
@@ -23,9 +37,19 @@ async fn main() -> io::Result<()> {
     //     panic!("boom");
     // });
 
-    let join_handle: task::JoinHandle<_> = spawn_future_retry_panics(make_future);
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::TRACE)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let err = join_handle.await.unwrap_err();
-    assert!(err.is_panic());
-    Ok(())
+    let join_handle = tokio::spawn(spawn_future_retry_panics(make_future));
+
+    let result = join_handle.await;
+    match result {
+        Ok(x) => Ok(x),
+        Err(err) => {
+            sleep(std::time::Duration::from_secs(1)).await;
+            Err(err.into())
+        }
+    }
 }
